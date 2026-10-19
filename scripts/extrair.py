@@ -7,11 +7,13 @@ import concurrent.futures as cf
 H = {'Referer': 'https://cnes.datasus.gov.br/pages/estabelecimentos/consulta.jsp', 'User-Agent': 'Mozilla/5.0 (aps-cnes-ine)'}
 B = 'https://cnes.datasus.gov.br/services/'
 THREADS = int(os.environ.get('THREADS', '8'))
+BUDGET = int(os.environ.get('BUDGET_MIN', '280')) * 60   # tempo máximo da parte; depois grava o que tiver
+MUN_MAX = 900   # segundos máximos por município (respostas travadas do CNES são descartadas)
 
-def get(url, tries=5):
+def get(url, tries=3):
     for i in range(tries):
         try:
-            r = urllib.request.urlopen(urllib.request.Request(url, headers=H), timeout=60)
+            r = urllib.request.urlopen(urllib.request.Request(url, headers=H), timeout=30)
             b = r.read()
             if b[:2] == b'\x1f\x8b': b = gzip.decompress(b)
             return json.loads(b) if b else []
@@ -49,27 +51,43 @@ def dt(s):
     try: return datetime.datetime.strptime(s, '%d/%m/%Y').date()
     except Exception: return None
 
-def um_municipio(mun, ex):
+def _pmap(fn, items, deadline):
+    # executa em paralelo e descarta o que não terminar até o prazo (evita travar a parte inteira)
+    ex = cf.ThreadPoolExecutor(THREADS)
+    fs = [ex.submit(fn, x) for x in items]
+    done, pend = cf.wait(fs, timeout=max(1, deadline - time.time()))
+    ex.shutdown(wait=False, cancel_futures=True)
+    return [f.result() for f in fs if f in done and f.exception() is None], len(pend)
+
+def um_municipio(mun):
+    dl = time.time() + MUN_MAX
     est = get(B + f'estabelecimentos?municipio={mun}') or []
     est = [e for e in est if e.get('atendeSus') == 'S']
-    res = list(ex.map(lambda e: (e, get(B + 'estabelecimentos-equipes/' + e['id']) or []), est))
+    res, p1 = _pmap(lambda e: (e, get(B + 'estabelecimentos-equipes/' + e['id']) or []), est, dl)
     jobs = [(e, t) for e, ts in res for t in ts]
     def pf(j):
         e, t = j
         return j, get(B + f"estabelecimentos-equipes/profissionais/{e['id']}?coMun={t['coMunicipio']}&coArea={t['coArea']}&coEquipe={t['seqEquipe']}") or []
-    return list(ex.map(pf, jobs))
+    out, p2 = _pmap(pf, jobs, dl)
+    return out, p1 + p2
 
 def main(uf, out, parte=1, total=1):
     os.makedirs(out, exist_ok=True)
     ref = datetime.date.today().isoformat()
     E, P = [], []
     t0 = time.time()
-    with cf.ThreadPoolExecutor(THREADS) as ex:
-        muns = municipios(uf)
-        muns = muns[parte - 1::total]
+    muns = municipios(uf)[parte - 1::total]
+    falhas = []
+    if True:
         for i, mun in enumerate(muns):
+            if time.time() - t0 > BUDGET:
+                falhas += muns[i:]
+                print(f'tempo esgotado: {len(muns) - i} municípios ficaram de fora', flush=True)
+                break
             seen = set()
-            for (e, t), ps in um_municipio(mun, ex):
+            res, pend = um_municipio(mun)
+            if pend: falhas.append(mun)
+            for (e, t), ps in res:
                 if t['coEquipe'] in seen: continue
                 seen.add(t['coEquipe'])
                 tipo = TP.get(t['tpEquipe'], 'Outra')
@@ -90,13 +108,15 @@ def main(uf, out, parte=1, total=1):
                     P.append(dict(data_ref=ref, ibge=int(mun), ine=int(t['coEquipe']), cbo=p['cbo'], ocupacao=p['dsCbo'], categoria=cat(p['cbo']),
                                   nome=p['noProfissional'], ch_semanal=(p['chAmb'] or 0) + (p['chOutros'] or 0) + (p['chHosp'] or 0),
                                   entrada=d.isoformat() if d else ''))
-            print(f'{uf} {i+1} {mun} equipes={len(E)} prof={len(P)} {int(time.time()-t0)}s', flush=True)
+            print(f'{uf} {i+1}/{len(muns)} {mun} equipes={len(E)} prof={len(P)} {int(time.time()-t0)}s' + (f' ({pend} consultas sem resposta)' if pend else ''), flush=True)
     for name, rows, cols in (('equipes', E, None), ('profissionais', P, None)):
         if not rows: continue
         with gzip.open(os.path.join(out, f'{uf}-{parte}_{name}.csv.gz'), 'wt', encoding='utf-8', newline='') as fh:
             w = csv.DictWriter(fh, fieldnames=list(rows[0].keys()), delimiter=';'); w.writeheader(); w.writerows(rows)
-    print('OK', uf, len(E), len(P))
-    if not E: sys.exit(f'ERRO: nenhuma equipe extraída para {uf} parte {parte}')
+    if falhas: print('municípios incompletos:', ' '.join(falhas))
+    print('OK', uf, len(E), len(P), flush=True)
+    sys.stdout.flush()
+    os._exit(0 if E else 1)   # _exit: não espera conexões travadas do CNES
 
 if __name__ == '__main__':
     a = sys.argv
