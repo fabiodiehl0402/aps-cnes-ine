@@ -1,0 +1,4 @@
+AC-1_equipes.csv.gz
+AC-1_profissionais.csv.gz
+AP-1_equipes.csv.gz
+AP-1_profissionais.csv.gz
