@@ -3,6 +3,11 @@ on:
   schedule:
     - cron: '17 6 5 * *'   # todo dia 5, 03h17 (Brasília)
   workflow_dispatch:
+    inputs:
+      ufs:
+        description: 'Só estas partes (ex.: "AC BA-2 MA-1"). Vazio = todas'
+        required: false
+        default: ''
 permissions:
   contents: write
 jobs:
@@ -22,16 +27,19 @@ jobs:
         shell: bash
         env:
           THREADS: '12'
+          BUDGET_MIN: '280'
           JOB: ${{ matrix.job }}
+          FILTRO: ${{ inputs.ufs }}
         run: |
-          set -o pipefail
           read UF PARTE TOTAL <<< "$JOB"
-          python scripts/extrair.py "$UF" novo "$PARTE" "$TOTAL" | tail -n 40
+          if [ -n "$FILTRO" ] && ! echo " $FILTRO " | grep -qE " ($UF|$UF-$PARTE) "; then echo "fora do filtro: $UF-$PARTE"; exit 0; fi
+          python -u scripts/extrair.py "$UF" novo "$PARTE" "$TOTAL"
       - uses: actions/upload-artifact@v4
         with:
           name: uf-${{ strategy.job-index }}
           path: novo/
           retention-days: 5
+          if-no-files-found: ignore
   publicar:
     needs: extrair
     if: always()
@@ -41,15 +49,17 @@ jobs:
       - uses: actions/download-artifact@v4
         with: { path: novo, pattern: uf-*, merge-multiple: true }
       - name: Gira atual -> anterior e grava a nova foto
+        env:
+          FILTRO: ${{ inputs.ufs }}
         run: |
           set -e
           n=$(ls novo/*_equipes.csv.gz 2>/dev/null | wc -l)
-          echo "partes extraídas: $n de 54"
+          echo "partes extraídas: $n"
           if [ "$n" -eq 0 ]; then echo "nada extraído - mantendo a foto anterior"; exit 1; fi
           MES=$(date +%Y-%m)
           mkdir -p dados/atual
-          rm -rf dados/anterior
-          cp -r dados/atual dados/anterior
+          # rodada completa: a foto atual vira a anterior; rodada parcial (filtro): só completa a atual
+          if [ -z "$FILTRO" ]; then rm -rf dados/anterior; cp -r dados/atual dados/anterior; fi
           cp novo/*.csv.gz dados/atual/
           mkdir -p "dados/historico/$MES" && cp novo/*.csv.gz "dados/historico/$MES/"
           for d in atual anterior; do (cd dados/$d && ls *.csv.gz 2>/dev/null || true) > dados/$d/_arquivos.txt; done
