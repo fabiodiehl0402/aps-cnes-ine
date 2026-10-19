@@ -8,6 +8,8 @@ AP-1_equipes.csv.gz
 AP-1_profissionais.csv.gz
 BA-1_equipes.csv.gz
 BA-1_profissionais.csv.gz
+BA-2_equipes.csv.gz
+BA-2_profissionais.csv.gz
 BA-3_equipes.csv.gz
 BA-3_profissionais.csv.gz
 CE-1_equipes.csv.gz
@@ -22,6 +24,8 @@ GO-1_equipes.csv.gz
 GO-1_profissionais.csv.gz
 GO-2_equipes.csv.gz
 GO-2_profissionais.csv.gz
+MA-1_equipes.csv.gz
+MA-1_profissionais.csv.gz
 MA-2_equipes.csv.gz
 MA-2_profissionais.csv.gz
 MG-1_equipes.csv.gz
@@ -52,6 +56,8 @@ PE-1_equipes.csv.gz
 PE-1_profissionais.csv.gz
 PE-2_equipes.csv.gz
 PE-2_profissionais.csv.gz
+PI-1_equipes.csv.gz
+PI-1_profissionais.csv.gz
 PI-2_equipes.csv.gz
 PI-2_profissionais.csv.gz
 PR-1_equipes.csv.gz
