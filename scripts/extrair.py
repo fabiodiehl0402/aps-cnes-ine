@@ -19,8 +19,17 @@ def get(url, tries=5):
             time.sleep(2 * (i + 1))
     return None
 
+UFC = {'RO': 11, 'AC': 12, 'AM': 13, 'RR': 14, 'PA': 15, 'AP': 16, 'TO': 17, 'MA': 21, 'PI': 22, 'CE': 23, 'RN': 24, 'PB': 25, 'PE': 26, 'AL': 27,
+       'SE': 28, 'BA': 29, 'MG': 31, 'ES': 32, 'RJ': 33, 'SP': 35, 'PR': 41, 'SC': 42, 'RS': 43, 'MS': 50, 'MT': 51, 'GO': 52, 'DF': 53}
+
 def municipios(uf):
-    d = get(f'https://servicodados.ibge.gov.br/api/v1/localidades/estados/{uf}/municipios') or []
+    # 1º: lista do próprio CNES; 2º: API do IBGE (às vezes não responde para o GitHub)
+    for _ in range(3):
+        d = get(B + f'municipios?estado={UFC[uf]}')
+        if d:
+            if uf == 'DF': return ['530010']   # o CNES lista as regiões administrativas; o município IBGE é só Brasília
+            return sorted(k for k in map(str, d) if k[:2] == str(UFC[uf]) and k[2:] != '0000')
+    d = get(f'https://servicodados.ibge.gov.br/api/v1/localidades/estados/{uf}/municipios', tries=8) or []
     return [str(m['id'])[:6] for m in d]
 
 def cat(c):
@@ -87,6 +96,7 @@ def main(uf, out, parte=1, total=1):
         with gzip.open(os.path.join(out, f'{uf}-{parte}_{name}.csv.gz'), 'wt', encoding='utf-8', newline='') as fh:
             w = csv.DictWriter(fh, fieldnames=list(rows[0].keys()), delimiter=';'); w.writeheader(); w.writerows(rows)
     print('OK', uf, len(E), len(P))
+    if not E: sys.exit(f'ERRO: nenhuma equipe extraída para {uf} parte {parte}')
 
 if __name__ == '__main__':
     a = sys.argv
