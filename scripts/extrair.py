@@ -38,8 +38,8 @@ def cat(c):
     c = str(c)
     if c.startswith('225') or c.startswith('2231'): return 'Médico'
     if c.startswith('2235'): return 'Enfermeiro'
+    if c in ('515105', '322255'): return 'ACS'   # 322255 (técnico em ACS) antes do 3222 da enfermagem
     if c.startswith('3222'): return 'Téc./aux. enfermagem'
-    if c in ('515105', '322255'): return 'ACS'
     if c.startswith('2232'): return 'Cirurgião-dentista'
     if c.startswith('3224'): return 'ASB/TSB'
     return 'Outro'
@@ -107,7 +107,7 @@ def main(uf, out, parte=1, total=1):
                     d = dt(p['dtEntrada'] or '')
                     P.append(dict(data_ref=ref, ibge=int(mun), ine=int(t['coEquipe']), cbo=p['cbo'], ocupacao=p['dsCbo'], categoria=cat(p['cbo']),
                                   nome=p['noProfissional'], ch_semanal=(p['chAmb'] or 0) + (p['chOutros'] or 0) + (p['chHosp'] or 0),
-                                  entrada=d.isoformat() if d else ''))
+                                  entrada=d.isoformat() if d else '', cns=str(p.get('cns') or '')))
             print(f'{uf} {i+1}/{len(muns)} {mun} equipes={len(E)} prof={len(P)} {int(time.time()-t0)}s' + (f' ({pend} consultas sem resposta)' if pend else ''), flush=True)
     for name, rows, cols in (('equipes', E, None), ('profissionais', P, None)):
         if not rows: continue
