@@ -1,0 +1,31 @@
+name: Dividir e-Gestor por aba
+on:
+  workflow_run:
+    workflows: ["Atualizar e-Gestor (Financiamento APS)"]
+    types: [completed]
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: commit-dados
+  cancel-in-progress: false
+jobs:
+  dividir:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22' }
+      - name: Uma planilha pequena por aba
+        working-directory: scripts/egestor
+        run: |
+          npm install --no-save --silent xlsx@0.18.5
+          node --max-old-space-size=6000 dividir_abas.js ../../dados/egestor/pagamento ../../dados/egestor/abas
+      - name: Commit
+        run: |
+          git config user.name "aps-cnes-bot"
+          git config user.email "aps-cnes-bot@users.noreply.github.com"
+          git add dados/egestor/abas
+          git commit -m "e-Gestor por aba $(date +%Y-%m-%d)" || { echo "sem mudanças"; exit 0; }
+          for i in 1 2 3; do git pull --rebase && git push && break; sleep 10; done
