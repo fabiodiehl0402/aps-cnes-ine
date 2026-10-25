@@ -1,0 +1,24 @@
+name: Teste EP DATASUS
+on: workflow_dispatch
+jobs:
+  teste:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - run: pip install --quiet pyreaddbc pandas
+      - name: Baixar e ler EP de RO
+        run: |
+          for m in 2509 2506 2512 2412; do
+            curl -s --max-time 120 -o EPRO$m.dbc "ftp://ftp.datasus.gov.br/dissemin/publicos/CNES/200508_/Dados/EP/EPRO$m.dbc" && ls -l EPRO$m.dbc || echo "falhou $m"
+          done
+          python - <<'P'
+          import glob, pyreaddbc, pandas as pd
+          for f in sorted(glob.glob('EPRO*.dbc')):
+              try:
+                  df = pyreaddbc.read_dbc(f, encoding='iso-8859-1')
+              except Exception as e:
+                  print(f, 'erro', e); continue
+              print(f, df.shape, list(df.columns))
+              v = df[df.astype(str).apply(lambda r: r.str.contains('1522051|1534084|1540831|1605879|2556332').any(), axis=1)]
+              print(v.to_string()[:3000])
+          P
