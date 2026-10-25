@@ -1,0 +1,34 @@
+name: Mapa INE x unidade (historico DATASUS)
+on:
+  workflow_run:
+    workflows: ["Atualizar CNES por INE"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      meses:
+        description: 'Quantos meses de historico do DATASUS ler'
+        required: false
+        default: '18'
+permissions:
+  contents: write
+concurrency:
+  group: commit-dados
+  cancel-in-progress: false
+jobs:
+  mapa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - run: pip install --quiet pyreaddbc dbfread
+      - name: Montar mapa INE -> unidade
+        run: python -u scripts/mapa_ine.py dados "${{ inputs.meses || '18' }}"
+      - name: Commit
+        run: |
+          git config user.name "aps-cnes-bot"
+          git config user.email "aps-cnes-bot@users.noreply.github.com"
+          git add dados/ine_unidade.csv.gz dados/cnes_nomes.csv.gz
+          git commit -m "mapa INE x unidade $(date +%Y-%m-%d)" || { echo "sem mudancas"; exit 0; }
+          for i in 1 2 3; do git pull --rebase && git push && break; sleep 10; done
