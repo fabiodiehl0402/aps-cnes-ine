@@ -1,0 +1,28 @@
+name: Teste EP DATASUS 2
+on: workflow_dispatch
+jobs:
+  teste:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - run: pip install --quiet pyreaddbc dbfread
+      - name: Ler EP de RO
+        run: |
+          for m in 2609 2608 2512 2506; do
+            curl -s --max-time 120 -o EPRO$m.dbc "ftp://ftp.datasus.gov.br/dissemin/publicos/CNES/200508_/Dados/EP/EPRO$m.dbc" && ls -l EPRO$m.dbc || echo "falhou $m"
+          done
+          python - <<'P'
+          import glob, pyreaddbc, dbfread
+          for f in sorted(glob.glob('EPRO*.dbc')):
+              try:
+                  pyreaddbc.dbc2dbf(f, f[:-4] + '.dbf')
+                  t = list(dbfread.DBF(f[:-4] + '.dbf', encoding='iso-8859-1'))
+              except Exception as e:
+                  print(f, 'erro', repr(e)); continue
+              print(f, len(t), list(t[0].keys()) if t else [])
+              print(t[0] if t else '')
+              for r in t:
+                  s = ' '.join(str(v) for v in r.values())
+                  if any(k in s for k in ('1522051', '1534084', '1540831', '1605879', '2556332')):
+                      print(dict(r))
+          P
