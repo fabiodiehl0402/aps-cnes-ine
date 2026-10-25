@@ -1,0 +1,47 @@
+name: Publicar rodada do CNES
+# Grava no repositório os arquivos já extraídos por uma rodada do "Atualizar CNES por INE"
+# (útil quando a extração terminou mas o commit falhou). Não extrai nada de novo.
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: 'ID da rodada do "Atualizar CNES por INE" (número na URL do run)'
+        required: true
+permissions:
+  contents: write
+  actions: read
+concurrency:
+  group: commit-dados
+  cancel-in-progress: false
+jobs:
+  publicar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: novo
+          pattern: uf-*
+          merge-multiple: true
+          run-id: ${{ inputs.run_id }}
+          github-token: ${{ github.token }}
+      - name: Gira atual -> anterior e grava a nova foto
+        run: |
+          set -e
+          n=$(ls novo/*_equipes.csv.gz 2>/dev/null | wc -l)
+          echo "partes extraídas: $n"
+          if [ "$n" -eq 0 ]; then echo "nada extraído"; exit 1; fi
+          MES=$(date +%Y-%m)
+          mkdir -p dados/atual
+          rm -rf dados/anterior; cp -r dados/atual dados/anterior
+          cp novo/*.csv.gz dados/atual/
+          mkdir -p "dados/historico/$MES" && cp novo/*.csv.gz "dados/historico/$MES/"
+          for d in atual anterior; do (cd dados/$d && ls *.csv.gz 2>/dev/null || true) > dados/$d/_arquivos.txt; done
+          date -u +%Y-%m-%dT%H:%MZ > dados/ultima_atualizacao.txt
+      - name: Commit
+        run: |
+          git config user.name "aps-cnes-bot"
+          git config user.email "aps-cnes-bot@users.noreply.github.com"
+          git add dados
+          git commit -m "CNES por INE $(date +%Y-%m-%d)" || { echo "sem mudanças"; exit 0; }
+          for i in 1 2 3; do git pull --rebase && git push && break; sleep 10; done
