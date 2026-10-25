@@ -3,14 +3,13 @@ Serve para localizar equipes que já saíram do CNES atual (desativadas, excluí
 mas ainda aparecem em listas do Ministério (ex.: ESAEI / suspensão por não envio ao SISAB).
 Uso: python scripts/mapa_ine.py dados/  [meses=18]
 Gera dados/ine_unidade.csv.gz (separador ;, UTF-8) e mantém dados/cnes_nomes.csv.gz (cache de nomes)."""
-import csv, datetime, gzip, io, json, os, sys, time, urllib.request
+import csv, datetime, ftplib, gzip, json, os, sys, time, urllib.request
 import concurrent.futures as cf
 import dbfread, pyreaddbc
 
 OUT = sys.argv[1] if len(sys.argv) > 1 else 'dados'
 MESES = int(sys.argv[2]) if len(sys.argv) > 2 else 18
 UFS = ['RO', 'AC', 'AM', 'RR', 'PA', 'AP', 'TO', 'MA', 'PI', 'CE', 'RN', 'PB', 'PE', 'AL', 'SE', 'BA', 'MG', 'ES', 'RJ', 'SP', 'PR', 'SC', 'RS', 'MS', 'MT', 'GO', 'DF']
-FTP = 'ftp://ftp.datasus.gov.br/dissemin/publicos/CNES/200508_/Dados/EP/EP{uf}{aamm}.dbc'
 H = {'Referer': 'https://cnes.datasus.gov.br/pages/estabelecimentos/consulta.jsp', 'User-Agent': 'Mozilla/5.0 (aps-cnes-ine)'}
 TMP = '/tmp/ep'
 os.makedirs(TMP, exist_ok=True)
@@ -25,18 +24,33 @@ def competencias(n):
     return out
 
 
-def baixar(uf, aamm):
-    dst = f'{TMP}/EP{uf}{aamm}.dbc'
-    for i in range(3):
-        try:
-            with urllib.request.urlopen(FTP.format(uf=uf, aamm=aamm), timeout=180) as r, open(dst, 'wb') as f:
-                f.write(r.read())
-            return dst
-        except Exception as e:
-            if '550' in str(e) or 'No such file' in str(e):
-                return None          # competência ainda não publicada
-            time.sleep(5 * (i + 1))
-    return None
+def conectar():
+    f = ftplib.FTP('ftp.datasus.gov.br', timeout=120)
+    f.login()
+    f.cwd('/dissemin/publicos/CNES/200508_/Dados/EP')
+    return f
+
+
+def baixar_todos(nomes):
+    """Baixa os arquivos em sequência numa única conexão FTP (o DATASUS limita conexões simultâneas)."""
+    ftp = conectar()
+    for nome in nomes:
+        dst = f'{TMP}/{nome}'
+        for i in range(3):
+            try:
+                with open(dst, 'wb') as fh:
+                    ftp.retrbinary('RETR ' + nome, fh.write)
+                yield nome, dst
+                break
+            except Exception as e:
+                print('falha', nome, e, flush=True)
+                time.sleep(5 * (i + 1))
+                try:
+                    ftp.close()
+                except Exception:
+                    pass
+                ftp = conectar()
+    ftp.quit()
 
 
 def ler(path):
@@ -49,32 +63,31 @@ def ler(path):
 
 
 def main():
-    comps = competencias(MESES)
+    comps = set(competencias(MESES))
+    ftp = conectar()
+    disp = {n.upper(): n for n in ftp.nlst()}   # nome em maiúsculas -> nome real no servidor
+    ftp.quit()
+    nomes_arq = sorted(disp[f'EP{uf}{c}.DBC'] for uf in UFS for c in comps if f'EP{uf}{c}.DBC' in disp)
+    print('arquivos EP a ler:', len(nomes_arq), flush=True)
     mapa = {}   # ine -> registro mais recente
-    jobs = [(uf, c) for uf in UFS for c in comps]
-    with cf.ThreadPoolExecutor(6) as ex:
-        futs = {ex.submit(baixar, uf, c): (uf, c) for uf, c in jobs}
-        for f in cf.as_completed(futs):
-            uf, c = futs[f]
-            p = f.result()
-            if not p:
+    for nome, p in baixar_todos(nomes_arq):
+        c = nome[4:8]
+        n = 0
+        for r in ler(p):
+            ide = (r.get('IDEQUIPE') or '').strip()
+            if len(ide) < 8:
                 continue
-            n = 0
-            for r in ler(p):
-                ide = (r.get('IDEQUIPE') or '').strip()
-                if len(ide) < 8:
-                    continue
-                ine = int(ide[-8:])
-                comp = int(r.get('COMPETEN') or ('20' + c))
-                old = mapa.get(ine)
-                if old and old['ult_competencia'] >= comp:
-                    continue
-                dtd = (r.get('DT_DESAT') or '').strip()
-                mapa[ine] = dict(ine=ine, cnes=int(r['CNES']), ibge=int(r['CODUFMUN']), tipo_eqp=(r.get('TIPO_EQP') or '').strip(),
-                                 nome_equipe=(r.get('NOME_EQP') or '').strip(), dt_ativacao=(r.get('DT_ATIVA') or '').strip(),
-                                 dt_desativacao='' if dtd in ('', '900001') else dtd, ult_competencia=comp)
-                n += 1
-            print(f'EP{uf}{c}: {n} equipes', flush=True)
+            ine = int(ide[-8:])
+            comp = int(r.get('COMPETEN') or ('20' + c))
+            old = mapa.get(ine)
+            if old and old['ult_competencia'] >= comp:
+                continue
+            dtd = (r.get('DT_DESAT') or '').strip()
+            mapa[ine] = dict(ine=ine, cnes=int(r['CNES']), ibge=int(r['CODUFMUN']), tipo_eqp=(r.get('TIPO_EQP') or '').strip(),
+                             nome_equipe=(r.get('NOME_EQP') or '').strip(), dt_ativacao=(r.get('DT_ATIVA') or '').strip(),
+                             dt_desativacao='' if dtd in ('', '900001') else dtd, ult_competencia=comp)
+            n += 1
+        print(f'{nome}: {n} equipes', flush=True)
     print('INEs no histórico:', len(mapa), flush=True)
 
     # nomes das unidades: cache + CNES atual (extração mensal) + API do CNES para o que faltar
