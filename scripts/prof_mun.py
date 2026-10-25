@@ -14,7 +14,7 @@ TMP = '/tmp/pf'
 PASTA = os.path.join(OUT, 'prof_mun')
 os.makedirs(TMP, exist_ok=True)
 os.makedirs(PASTA, exist_ok=True)
-COLS = ['competencia', 'ibge', 'cnes', 'cbo', 'nome', 'cns', 'sus', 'ch', 'vinculo', 'tp_unid']
+COLS = ['competencia', 'ibge', 'cnes', 'cbo', 'nome', 'cns', 'sus', 'ch', 'vinculo', 'tp_unid', 'nat_jur', 'esfera']
 
 
 def grupo(c):
@@ -118,7 +118,8 @@ def main():
             w.writeheader()
             for r in dbfread.DBF(dbf, encoding='iso-8859-1'):
                 if primeira:
-                    print('colunas PF:', ', '.join(r.keys()), flush=True)
+                    with open(os.path.join(PASTA, '_colunas.txt'), 'w', encoding='utf-8') as fc0:
+                        fc0.write(json.dumps(dict(r), default=str, ensure_ascii=False))
                     primeira = False
                 cbo = g(r, 'CBO')
                 ibge, cnes = g(r, 'CODUFMUN'), g(r, 'CNES')
@@ -127,7 +128,8 @@ def main():
                                 nome=g(r, 'NOMEPROF'), cns=g(r, 'CNS_PROF'),
                                 sus='S' if g(r, 'PROF_SUS') == '1' else ('N' if g(r, 'PROFNSUS') == '1' else ''),
                                 ch=num(g(r, 'HORA_AMB')) + num(g(r, 'HORAHOSP')) + num(g(r, 'HORAOUTR')),
-                                vinculo=g(r, 'VINCULAC'), tp_unid=g(r, 'TP_UNID')))
+                                vinculo=g(r, 'VINCULAC'), tp_unid=g(r, 'TP_UNID'), nat_jur=g(r, 'NAT_JUR', 'NATUREZA'),
+                                esfera=g(r, 'ESFERA_A')))
                 n += 1
         os.remove(dbf)
         os.remove(p)
@@ -137,7 +139,7 @@ def main():
     except Exception:
         pass
     with open(os.path.join(PASTA, '_arquivos.txt'), 'w') as fh:
-        fh.write('\n'.join(sorted(f for f in os.listdir(PASTA) if f.endswith('.csv.gz'))) + '\n')
+        fh.write('\n'.join(sorted(f for f in os.listdir(PASTA) if f.endswith('.csv.gz') and not f.startswith('_'))) + '\n')
 
     # nome de cada CBO: cache; o que faltar vem do próprio CNES, num estabelecimento onde esse CBO aparece
     fc = os.path.join(OUT, 'cbo.csv')
