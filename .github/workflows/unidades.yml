@@ -1,0 +1,35 @@
+name: Unidades (endereco e coordenadas)
+on:
+  workflow_run:
+    workflows: ["Atualizar CNES por INE", "Publicar rodada do CNES"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      full:
+        description: 'Reconsultar todas as unidades (1) ou só as que faltam (vazio)'
+        required: false
+        default: ''
+permissions:
+  contents: write
+concurrency:
+  group: unidades
+  cancel-in-progress: false
+jobs:
+  unidades:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - name: Consultar unidades no CNES
+        env:
+          FULL: ${{ inputs.full }}
+        run: python -u scripts/unidades.py dados
+      - name: Commit
+        run: |
+          git config user.name "aps-cnes-bot"
+          git config user.email "aps-cnes-bot@users.noreply.github.com"
+          git add dados/unidades.csv.gz
+          git commit -m "unidades CNES $(date +%Y-%m-%d)" || { echo "sem mudancas"; exit 0; }
+          for i in 1 2 3 4 5; do git pull --rebase && git push && exit 0; sleep 15; done; exit 1
