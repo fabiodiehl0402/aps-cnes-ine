@@ -1,0 +1,35 @@
+name: Profissionais por municipio (CNES PF)
+on:
+  workflow_run:
+    workflows: ["Atualizar CNES por INE"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      ufs:
+        description: 'Só estas UFs (ex.: "RO ES"). Vazio = todas'
+        required: false
+        default: ''
+permissions:
+  contents: write
+concurrency:
+  group: prof-mun
+  cancel-in-progress: false
+jobs:
+  profissionais:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - run: pip install --quiet pyreaddbc dbfread
+      - name: Ler arquivos PF do DATASUS
+        run: python -u scripts/prof_mun.py dados "${{ inputs.ufs }}"
+      - name: Commit
+        run: |
+          git config user.name "aps-cnes-bot"
+          git config user.email "aps-cnes-bot@users.noreply.github.com"
+          ls -la dados/prof_mun
+          git add dados/prof_mun dados/cbo.csv
+          git commit -m "profissionais por municipio $(date +%Y-%m-%d)" || { echo "sem mudancas"; exit 0; }
+          for i in 1 2 3 4 5; do git pull --rebase && git push && exit 0; sleep 15; done; exit 1
