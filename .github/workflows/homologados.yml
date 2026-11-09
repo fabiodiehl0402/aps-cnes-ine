@@ -1,0 +1,30 @@
+name: Homologados e-Gestor (INEs e CNES)
+on:
+  schedule:
+    - cron: '17 9 * * 1'
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: commit-dados
+  cancel-in-progress: false
+jobs:
+  homologados:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - run: pip install --quiet openpyxl
+      - name: Baixar relação de homologados
+        run: |
+          mkdir -p dados/egestor
+          python -u scripts/homologados.py dados/egestor/ines-cnes-homologados.xlsx
+      - name: Commit
+        run: |
+          git config user.name "aps-cnes-bot"
+          git config user.email "aps-cnes-bot@users.noreply.github.com"
+          git add dados/egestor/ines-cnes-homologados.xlsx
+          git commit -m "homologados e-Gestor $(date +%Y-%m-%d)" || { echo "sem mudancas"; exit 0; }
+          for i in 1 2 3 4 5; do git pull --rebase && git push && exit 0; sleep 15; done; exit 1
